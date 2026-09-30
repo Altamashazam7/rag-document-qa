@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.embeddings import FastEmbedEmbeddings
 
 app = FastAPI(title="Automated HR Candidate Screening RAG Engine")
 
@@ -15,17 +15,14 @@ UPLOAD_DIR = "uploaded_resumes"
 INDEX_DIR = "faiss_index"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# Lazy singletons for memory optimization
 embeddings = None
 vector_store = None
 
 def get_embeddings():
     global embeddings
     if embeddings is None:
-        embeddings = HuggingFaceEmbeddings(
-            model_name="all-MiniLM-L6-v2",
-            model_kwargs={'device': 'cpu'}
-        )
+        # FastEmbed runs ONNX model on CPU with minimal RAM (~120MB)
+        embeddings = FastEmbedEmbeddings(model_name="BAAI/bge-small-en-v1.5")
     return embeddings
 
 def get_vector_store():
@@ -85,7 +82,7 @@ async def upload_batch_resumes(files: List[UploadFile] = File(...)):
                 vector_store = target_store
 
             processed_files.append(file.filename)
-            gc.collect()  # Force free unused RAM per PDF
+            gc.collect()
 
         except Exception as e:
             print(f"Failed to process candidate resume {file.filename}: {e}")

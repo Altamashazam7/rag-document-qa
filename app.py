@@ -12,6 +12,14 @@ st.set_page_config(
 st.title("📄 Automated HR Candidate Screening System")
 st.markdown("Upload candidate resume PDFs and perform local semantic search.")
 
+# --- HELPER FUNCTION: SAFE JSON EXTRACTION ---
+def safe_parse_json(response):
+    """Safely parse JSON or fallback to raw text if server returned HTML/text."""
+    try:
+        return response.json()
+    except Exception:
+        return None
+
 # --- SIDEBAR SYSTEM HEALTH MONITOR ---
 st.sidebar.header("System Status")
 
@@ -56,12 +64,18 @@ with tab1:
                 try:
                     # 180s timeout accommodates batch vector embedding creation
                     response = requests.post(f"{API_URL}/upload-batch", files=files_payload, timeout=180)
+                    data = safe_parse_json(response)
+
                     if response.status_code == 200:
-                        data = response.json()
-                        st.success(f"Successfully indexed {len(data['processed_resumes'])} resume(s)!")
-                        st.json(data)
+                        if data:
+                            st.success(f"Successfully indexed {len(data.get('processed_resumes', []))} resume(s)!")
+                            st.json(data)
+                        else:
+                            st.error("Response returned 200 OK but was not valid JSON.")
                     else:
-                        st.error(f"Error {response.status_code}: {response.json().get('detail', response.text)}")
+                        error_detail = data.get('detail', response.text) if data else response.text
+                        st.error(f"Error {response.status_code}: {error_detail}")
+                        
                 except requests.exceptions.Timeout:
                     st.error("Request timed out. Please try uploading in smaller batches of 1–2 files.")
                 except Exception as e:
@@ -87,20 +101,26 @@ with tab2:
                 try:
                     payload = {"question": query_text, "top_k": top_k}
                     response = requests.post(f"{API_URL}/query", json=payload, timeout=60)
+                    data = safe_parse_json(response)
+
                     if response.status_code == 200:
-                        data = response.json()
-                        st.subheader(f"Matches Found: {data['matches_found']}")
-                        
-                        if data['matches_found'] == 0:
-                            st.info("No relevant matches found for your query.")
+                        if data:
+                            st.subheader(f"Matches Found: {data.get('matches_found', 0)}")
+                            
+                            if data.get('matches_found', 0) == 0:
+                                st.info("No relevant matches found for your query.")
+                            else:
+                                for idx, match in enumerate(data.get('results', []), 1):
+                                    candidate_name = match.get('candidate_file', 'Unknown Candidate')
+                                    page_num = match.get('page', 'N/A')
+                                    with st.expander(f"Match #{idx} — Candidate: {candidate_name} (Page {page_num})", expanded=True):
+                                        st.write(match['content'])
                         else:
-                            for idx, match in enumerate(data['results'], 1):
-                                candidate_name = match.get('candidate_file', 'Unknown Candidate')
-                                page_num = match.get('page', 'N/A')
-                                with st.expander(f"Match #{idx} — Candidate: {candidate_name} (Page {page_num})", expanded=True):
-                                    st.write(match['content'])
+                            st.error("Response returned 200 OK but was not valid JSON.")
                     else:
-                        st.error(f"Error {response.status_code}: {response.json().get('detail', response.text)}")
+                        error_detail = data.get('detail', response.text) if data else response.text
+                        st.error(f"Error {response.status_code}: {error_detail}")
+
                 except requests.exceptions.Timeout:
                     st.error("Query timed out. Please try again.")
                 except Exception as e:

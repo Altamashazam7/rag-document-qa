@@ -21,7 +21,7 @@ vector_store = None
 def get_embeddings():
     global embeddings
     if embeddings is None:
-        # FastEmbed runs ONNX model on CPU with minimal RAM (~120MB)
+        # FastEmbed uses ONNX runtime (~120 MB RAM footprint instead of 700+ MB)
         embeddings = FastEmbedEmbeddings(model_name="BAAI/bge-small-en-v1.5")
     return embeddings
 

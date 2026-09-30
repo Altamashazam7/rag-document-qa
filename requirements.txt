@@ -1,13 +1,10 @@
---extra-index-url https://download.pytorch.org/whl/cpu
-torch
 fastapi
 uvicorn
 langchain
 langchain-community
-langchain-huggingface
+fastembed
 faiss-cpu
 pypdf
-sentence-transformers
 pydantic
 python-multipart
 streamlit

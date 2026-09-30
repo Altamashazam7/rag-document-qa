@@ -1,0 +1,9 @@
+fastapi>=0.110.0
+uvicorn>=0.28.0
+python-multipart>=0.0.9
+pypdf>=4.1.0
+langchain>=0.1.12
+langchain-community>=0.0.28
+langchain-openai>=0.0.8
+sentence-transformers>=2.5.1
+faiss-cpu>=1.9.0

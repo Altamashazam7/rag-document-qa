@@ -1,8 +1,8 @@
 import streamlit as st
 import requests
 
-# Backend API configuration
-API_URL = "http://127.0.0.1:8000"
+# Backend API configuration - pointing to your live Render instance
+API_URL = "https://rag-document-qa-qn4l.onrender.com"
 
 st.set_page_config(
     page_title="HR Candidate Screening RAG",
@@ -16,13 +16,13 @@ st.markdown("Upload candidate resume PDFs and perform local semantic search.")
 # Sidebar - System Status
 st.sidebar.header("System Status")
 try:
-    health_response = requests.get(f"{API_URL}/")
+    health_response = requests.get(f"{API_URL}/", timeout=10)
     if health_response.status_code == 200:
         st.sidebar.success("Backend API: Online")
     else:
         st.sidebar.error("Backend API: Error")
 except Exception:
-    st.sidebar.error("Backend API: Offline (Start uvicorn)")
+    st.sidebar.error("Backend API: Offline (Waking up Render instance...)")
 
 # Tab Layout
 tab1, tab2 = st.tabs(["📤 Upload Resumes", "🔍 Screen Candidates"])

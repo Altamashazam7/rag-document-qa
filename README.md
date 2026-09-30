@@ -1,17 +1,21 @@
-# Document Q&A Engine with RAG Pipeline
+# AI-Driven Retrieval-Augmented Generation (RAG) Pipeline
 
-A high-performance Retrieval-Augmented Generation (RAG) backend service built with Python, FastAPI, LangChain, and FAISS. It enables semantic vector similarity search over unstructured PDF documents with source page citations.
+A production-grade RAG pipeline built with FastAPI, LangChain, FAISS, and HuggingFace embeddings (all-MiniLM-L6-v2) designed for fast semantic document querying and automated context synthesis.
 
 ## Key Features
-- **PDF Ingestion & Processing:** Automated text extraction using `pypdf`.
-- **Sliding-Window Chunking:** Text chunking strategy (500 tokens with 50-token overlap) to preserve semantic context and reduce prompt token bloat.
-- **In-Memory Vector Search:** High-speed vector indexing and similarity search using **FAISS** and `all-MiniLM-L6-v2` embeddings.
-- **RESTful API:** Clean FastAPI endpoints for uploading documents and performing grounded Q&A.
+* **Dense Vector Search:** Uses HuggingFace sentence-transformers (all-MiniLM-L6-v2) to convert unstructured documents into 384-dimensional dense embeddings.
+* **Ultra-Fast Similarity Retrieval:** Leverages FAISS (Facebook AI Similarity Search) for low-latency L2 vector indexing and context extraction.
+* **High-Performance REST API:** Built on FastAPI with async execution and strict Pydantic payload validation.
 
-## Architecture
-```text
-[PDF Upload] -> [Text Extraction] -> [500-Token Chunking] -> [HuggingFace Embeddings] -> [FAISS Vector Store]
-                                                                                               |
-[User Question] ----------------------------> [Similarity Search] <----------------------------+
-                                                    |
-                                    [Top-K Context + Page Citations]
+## Tech Stack
+* **Framework:** Python, FastAPI, Uvicorn
+* **Orchestration:** LangChain
+* **Vector Store:** FAISS
+* **Embeddings:** HuggingFace (sentence-transformers/all-MiniLM-L6-v2)
+
+## Getting Started
+1. Clone Repository: git clone https://github.com/Altamashazam7/rag-document-qa.git
+2. Setup Environment: python -m venv venv; .\venv\Scripts\Activate
+3. Install Dependencies: pip install -r requirements.txt
+4. Start API Server: uvicorn main:app --reload
+5. Access Docs: http://localhost:8000/docs

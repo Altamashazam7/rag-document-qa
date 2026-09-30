@@ -1,1 +1,5 @@
-__pycache__/\nuploads/\n*.pyc\nvenv/
+venv/
+__pycache__/
+uploaded_resumes/
+faiss_index/
+.env

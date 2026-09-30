@@ -15,6 +15,7 @@ UPLOAD_DIR = "uploaded_resumes"
 INDEX_DIR = "faiss_index"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+# Lazy singletons for memory optimization
 embeddings = None
 vector_store = None
 
@@ -37,7 +38,7 @@ def get_vector_store():
                 allow_dangerous_deserialization=True
             )
         except Exception as e:
-            print(f"Failed to load existing index: {e}")
+            print(f"Error loading existing vector index: {e}")
     return vector_store
 
 class QueryRequest(BaseModel):
@@ -49,9 +50,7 @@ async def root():
     return {"status": "online", "service": "HR Candidate Screening RAG API"}
 
 @app.post("/upload-batch")
-async def upload_batch_resumes(
-    files: List[UploadFile] = File(...)
-):
+async def upload_batch_resumes(files: List[UploadFile] = File(...)):
     global vector_store
     processed_files = []
     
@@ -74,27 +73,31 @@ async def upload_batch_resumes(
 
             chunks = text_splitter.split_documents(docs)
             
-            # Process embeddings incrementally per file to save RAM
+            if not chunks:
+                continue
+
             v_store = get_vector_store()
             if v_store is None and vector_store is None:
                 vector_store = FAISS.from_documents(chunks, embeds)
             else:
-                current_store = vector_store if vector_store else v_store
-                current_store.add_documents(chunks)
-                vector_store = current_store
+                target_store = vector_store if vector_store else v_store
+                target_store.add_documents(chunks)
+                vector_store = target_store
 
             processed_files.append(file.filename)
-            
-            # Free memory explicitly after each file
-            gc.collect()
+            gc.collect()  # Force free unused RAM per PDF
 
         except Exception as e:
-            print(f"Error processing {file.filename}: {e}")
+            print(f"Failed to process candidate resume {file.filename}: {e}")
 
     if not processed_files:
-        raise HTTPException(status_code=400, detail="No valid resumes were processed.")
+        raise HTTPException(
+            status_code=400, 
+            detail="No valid text could be extracted from the uploaded PDF resumes."
+        )
 
-    vector_store.save_local(INDEX_DIR)
+    if vector_store:
+        vector_store.save_local(INDEX_DIR)
 
     return {
         "status": "success",
@@ -105,7 +108,10 @@ async def upload_batch_resumes(
 async def query_candidates(request: QueryRequest):
     v_store = get_vector_store()
     if v_store is None:
-        raise HTTPException(status_code=400, detail="No resumes indexed yet.")
+        raise HTTPException(
+            status_code=400, 
+            detail="No candidate resumes have been indexed yet. Please upload resumes first."
+        )
 
     results = v_store.similarity_search(request.question, k=request.top_k)
 

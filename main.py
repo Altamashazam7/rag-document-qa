@@ -8,60 +8,55 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 
-# Initialize FastAPI App
 app = FastAPI(
     title="Automated HR Candidate Screening RAG Engine",
-    description="Local vector-based PDF resume screening using FAISS and HuggingFace Embeddings.",
     version="1.0.0"
 )
 
-# Directory Configuration
 UPLOAD_DIR = "uploaded_resumes"
 INDEX_DIR = "faiss_index"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# Initialize Local Embedding Model
-embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-
-# Global Vector Store Instance
+# Global variables for lazy loading
+embeddings = None
 vector_store = None
 
-# Reload persistent vector database from disk if available on startup
-if os.path.exists(INDEX_DIR):
-    try:
-        vector_store = FAISS.load_local(
-            INDEX_DIR, 
-            embeddings, 
-            allow_dangerous_deserialization=True
+def get_embeddings():
+    """Lazy load embedding model to save startup memory."""
+    global embeddings
+    if embeddings is None:
+        embeddings = HuggingFaceEmbeddings(
+            model_name="all-MiniLM-L6-v2",
+            model_kwargs={'device': 'cpu'}
         )
-        print("Existing FAISS vector index loaded successfully from disk.")
-    except Exception as e:
-        print(f"Failed to load existing index: {e}")
+    return embeddings
 
+def get_vector_store():
+    """Lazy load vector store on demand."""
+    global vector_store
+    if vector_store is None and os.path.exists(INDEX_DIR):
+        try:
+            vector_store = FAISS.load_local(
+                INDEX_DIR, 
+                get_embeddings(), 
+                allow_dangerous_deserialization=True
+            )
+        except Exception as e:
+            print(f"Failed to load existing index: {e}")
+    return vector_store
 
 class QueryRequest(BaseModel):
     question: str
     top_k: int = 4
 
-
 @app.get("/")
 async def root():
-    """Health check endpoint."""
-    return {
-        "status": "online",
-        "service": "HR Candidate Screening RAG API",
-        "docs": "Visit http://127.0.0.1:8000/docs to test endpoints"
-    }
-
+    return {"status": "online", "service": "HR Candidate Screening RAG API"}
 
 @app.post("/upload-batch")
 async def upload_batch_resumes(
     files: List[UploadFile] = File(..., description="Select multiple resume PDFs")
 ):
-    """
-    Upload multiple resume PDFs simultaneously into the local FAISS vector store.
-    Attaches candidate file metadata to each chunk for precise source attribution.
-    """
     global vector_store
     processed_files = []
     all_chunks = []
@@ -73,16 +68,12 @@ async def upload_batch_resumes(
             continue
 
         file_path = os.path.join(UPLOAD_DIR, file.filename)
-        
-        # Save file to disk
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        # Parse PDF and assign source candidate metadata
         try:
             loader = PyPDFLoader(file_path)
             docs = loader.load()
-
             for doc in docs:
                 doc.metadata["source_candidate"] = file.filename
 
@@ -93,43 +84,32 @@ async def upload_batch_resumes(
             print(f"Error processing file {file.filename}: {e}")
 
     if not all_chunks:
-        raise HTTPException(
-            status_code=400, 
-            detail="No valid text could be extracted from the uploaded PDF resumes."
-        )
+        raise HTTPException(status_code=400, detail="No valid text extracted.")
 
-    # Initialize or extend the FAISS index
-    if vector_store is None:
-        vector_store = FAISS.from_documents(all_chunks, embeddings)
+    embeds = get_embeddings()
+    v_store = get_vector_store()
+
+    if v_store is None:
+        vector_store = FAISS.from_documents(all_chunks, embeds)
     else:
-        vector_store.add_documents(all_chunks)
+        v_store.add_documents(all_chunks)
+        vector_store = v_store
 
-    # Persist FAISS index snapshot to disk
     vector_store.save_local(INDEX_DIR)
 
     return {
         "status": "success",
         "processed_resumes": processed_files,
-        "total_chunks_indexed": len(all_chunks),
-        "message": "Resumes indexed and vector database persisted to disk."
+        "total_chunks_indexed": len(all_chunks)
     }
-
 
 @app.post("/query")
 async def query_candidates(request: QueryRequest):
-    """
-    Perform semantic search across all uploaded candidate resumes.
-    Returns matching text passages tagged with source candidate filenames.
-    """
-    global vector_store
-    if vector_store is None:
-        raise HTTPException(
-            status_code=400, 
-            detail="No resumes indexed yet. Please upload resumes first."
-        )
+    v_store = get_vector_store()
+    if v_store is None:
+        raise HTTPException(status_code=400, detail="No resumes indexed yet.")
 
-    # Similarity search in FAISS vector space
-    results = vector_store.similarity_search(request.question, k=request.top_k)
+    results = v_store.similarity_search(request.question, k=request.top_k)
 
     retrieved_context = []
     for doc in results:

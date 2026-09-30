@@ -1,5 +1,6 @@
 import os
 import shutil
+import gc
 from typing import List
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from pydantic import BaseModel
@@ -8,21 +9,16 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 
-app = FastAPI(
-    title="Automated HR Candidate Screening RAG Engine",
-    version="1.0.0"
-)
+app = FastAPI(title="Automated HR Candidate Screening RAG Engine")
 
 UPLOAD_DIR = "uploaded_resumes"
 INDEX_DIR = "faiss_index"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# Global variables for lazy loading
 embeddings = None
 vector_store = None
 
 def get_embeddings():
-    """Lazy load embedding model to save startup memory."""
     global embeddings
     if embeddings is None:
         embeddings = HuggingFaceEmbeddings(
@@ -32,7 +28,6 @@ def get_embeddings():
     return embeddings
 
 def get_vector_store():
-    """Lazy load vector store on demand."""
     global vector_store
     if vector_store is None and os.path.exists(INDEX_DIR):
         try:
@@ -55,13 +50,13 @@ async def root():
 
 @app.post("/upload-batch")
 async def upload_batch_resumes(
-    files: List[UploadFile] = File(..., description="Select multiple resume PDFs")
+    files: List[UploadFile] = File(...)
 ):
     global vector_store
     processed_files = []
-    all_chunks = []
-
+    
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+    embeds = get_embeddings()
 
     for file in files:
         if not file.filename.lower().endswith(".pdf"):
@@ -78,29 +73,32 @@ async def upload_batch_resumes(
                 doc.metadata["source_candidate"] = file.filename
 
             chunks = text_splitter.split_documents(docs)
-            all_chunks.extend(chunks)
+            
+            # Process embeddings incrementally per file to save RAM
+            v_store = get_vector_store()
+            if v_store is None and vector_store is None:
+                vector_store = FAISS.from_documents(chunks, embeds)
+            else:
+                current_store = vector_store if vector_store else v_store
+                current_store.add_documents(chunks)
+                vector_store = current_store
+
             processed_files.append(file.filename)
+            
+            # Free memory explicitly after each file
+            gc.collect()
+
         except Exception as e:
-            print(f"Error processing file {file.filename}: {e}")
+            print(f"Error processing {file.filename}: {e}")
 
-    if not all_chunks:
-        raise HTTPException(status_code=400, detail="No valid text extracted.")
-
-    embeds = get_embeddings()
-    v_store = get_vector_store()
-
-    if v_store is None:
-        vector_store = FAISS.from_documents(all_chunks, embeds)
-    else:
-        v_store.add_documents(all_chunks)
-        vector_store = v_store
+    if not processed_files:
+        raise HTTPException(status_code=400, detail="No valid resumes were processed.")
 
     vector_store.save_local(INDEX_DIR)
 
     return {
         "status": "success",
-        "processed_resumes": processed_files,
-        "total_chunks_indexed": len(all_chunks)
+        "processed_resumes": processed_files
     }
 
 @app.post("/query")
